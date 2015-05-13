@@ -102,49 +102,63 @@ public class OfflineMapDownloader implements MapboxConstants {
                 protected Void doInBackground(String... params) {
                     HttpURLConnection conn = null;
                     String url = params[0];
-                    try {
-                        conn = NetworkUtils.getHttpURLConnection(new URL(url));
-                        Log.d(TAG, "URL to download = " + conn.getURL().toString());
-                        conn.setConnectTimeout(60000);
-                        conn.connect();
-                        int rc = conn.getResponseCode();
-                        if (rc != HttpURLConnection.HTTP_OK) {
-                            String msg = String.format(MAPBOX_LOCALE, "HTTP Error connection.  Response Code = %d for url = %s", rc, conn.getURL().toString());
-                            Log.w(TAG, msg);
-                            notifyDelegateOfHTTPStatusError(rc, params[0]);
-                            throw new IOException(msg);
-                        }
-
-                        ByteArrayOutputStream bais = new ByteArrayOutputStream();
-                        InputStream is = null;
+                    String queryString = "SELECT COUNT(*) as count FROM " + OfflineDatabaseHandler.TABLE_RESOURCES + " WHERE " + OfflineDatabaseHandler.FIELD_RESOURCES_URL + " =?;";
+                    String[] selectionArgs = new String[] { url };
+                    Cursor result = database().rawQuery(queryString, selectionArgs);
+                    boolean alreadyDownloaded = false;
+                    if (result.moveToNext()) {
+                        int count = result.getInt(result.getColumnIndex("count"));
+                        alreadyDownloaded = count == 1;
+                    }
+                    result.close();
+                    if (!alreadyDownloaded) {
                         try {
-                            is = conn.getInputStream();
-                            // Read 4K at a time
-                            byte[] byteChunk = new byte[4096];
-                            int n;
-
-                            while ((n = is.read(byteChunk)) > 0) {
-                                bais.write(byteChunk, 0, n);
+                            conn = NetworkUtils.getHttpURLConnection(new URL(url));
+                            Log.d(TAG, "URL to download = " + conn.getURL().toString());
+                            conn.setConnectTimeout(60000);
+                            conn.connect();
+                            int rc = conn.getResponseCode();
+                            if (rc != HttpURLConnection.HTTP_OK) {
+                                String msg = String.format(MAPBOX_LOCALE, "HTTP Error connection.  Response Code = %d for url = %s", rc, conn.getURL().toString());
+                                Log.w(TAG, msg);
+                                notifyDelegateOfHTTPStatusError(rc, params[0]);
+                                throw new IOException(msg);
                             }
+
+                            ByteArrayOutputStream bais = new ByteArrayOutputStream();
+                            InputStream is = null;
+                            try {
+                                is = conn.getInputStream();
+                                // Read 4K at a time
+                                byte[] byteChunk = new byte[4096];
+                                int n;
+
+                                while ((n = is.read(byteChunk)) > 0) {
+                                    bais.write(byteChunk, 0, n);
+                                }
+                            } catch (IOException e) {
+                                Log.e(TAG, String.format(MAPBOX_LOCALE, "Failed while reading bytes from %s: %s", conn.getURL().toString(), e.getMessage()));
+                                e.printStackTrace();
+                            } finally {
+                                if (is != null) {
+                                    is.close();
+                                }
+                                conn.disconnect();
+                            }
+                            sqliteSaveDownloadedData(bais.toByteArray(), url);
                         } catch (IOException e) {
-                            Log.e(TAG, String.format(MAPBOX_LOCALE, "Failed while reading bytes from %s: %s", conn.getURL().toString(), e.getMessage()));
+                            Log.e(TAG, e.getMessage());
                             e.printStackTrace();
                         } finally {
-                            if (is != null) {
-                                is.close();
+                            if (conn != null) {
+                                conn.disconnect();
                             }
-                            conn.disconnect();
                         }
-                        sqliteSaveDownloadedData(bais.toByteArray(), url);
-                    } catch (IOException e) {
-                        Log.e(TAG, e.getMessage());
-                        e.printStackTrace();
-                    } finally {
-                        if (conn != null) {
-                            conn.disconnect();
-                        }
+                    } else {
+                        Log.d(TAG, "already downloaded!");
                     }
 
+                    markOneFileCompleted();
                     startDownloadTask();
                     return null;
                 }
@@ -159,8 +173,6 @@ public class OfflineMapDownloader implements MapboxConstants {
     private boolean includesMarkers;
     private RasterImageQuality imageQuality;
     private CoordinateRegion mapRegion;
-    private int minimumZ;
-    private int maximumZ;
     private MBXOfflineMapDownloaderState state;
     private int totalFilesWritten;
     private int totalFilesExpectedToWrite;
@@ -191,10 +203,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         // Load OfflineMapDatabases from File System
         ContextWrapper cw = new ContextWrapper(context);
         for (String s : cw.databaseList()) {
-            if (!s.toLowerCase().contains("partial") && !s.toLowerCase().contains("journal")) {
-                // Setup Database Handler
-                OfflineDatabaseManager.getOfflineDatabaseManager(context).getOfflineDatabaseHandlerForMapId(s, true);
-
+            if (!s.toLowerCase().contains("journal")) {
                 // Create the Database Object
                 OfflineMapDatabase omd = new OfflineMapDatabase(context, s);
                 omd.initializeDatabase();
@@ -281,22 +290,15 @@ public class OfflineMapDownloader implements MapboxConstants {
         String dbPath = db.getPath();
         closeDatabase();
 
-        if (dbPath.endsWith("-PARTIAL")) {
-            // Rename SQLlite database file
-            File oldDb = new File(dbPath);
-            String newDb = dbPath.substring(0, dbPath.indexOf("-PARTIAL"));
-            boolean result = oldDb.renameTo(new File(newDb));
-            Log.i(TAG, "Result of rename = " + result + " for oldDb = '" + dbPath + "'; newDB = '" + newDb + "'");
-        }
-
-        // Update Database Handler
-        OfflineDatabaseManager.getOfflineDatabaseManager(context).switchHandlerFromPartialToRegular(mapID);
-
         // Create DB object and return
-        OfflineMapDatabase offlineMapDatabase = new OfflineMapDatabase(context, mapID);
-        // Initialized with data from database
-        offlineMapDatabase.initializeDatabase();
-        return offlineMapDatabase;
+        if (isMapIdAlreadyAnOfflineMapDatabase(mapID)) {
+            return null;
+        } else {
+            OfflineMapDatabase offlineMapDatabase = new OfflineMapDatabase(context, mapID);
+            // Initialized with data from database
+            offlineMapDatabase.initializeDatabase();
+            return offlineMapDatabase;
+        }
 
         // Create new OfflineMapDatabase and load with recently downloaded data
 /*
@@ -324,7 +326,7 @@ public class OfflineMapDownloader implements MapboxConstants {
     }
 
 
-    public void startDownloading() {
+    public void startDownloading(final List<String> urls, final OfflineMapURLGenerator generator) {
 /*
         // Shouldn't need to check as all downloading will happen in background thread
         if (AppUtils.runningOnMainThread()) {
@@ -332,19 +334,43 @@ public class OfflineMapDownloader implements MapboxConstants {
             return;
         }
 */
-
-        // Update expected files numbers (totalFilesExpectedToWrite and totalFilesWritten)
-        sqliteQueryWrittenAndExpectedCountsWithError();
         Log.d(TAG, String.format(MAPBOX_LOCALE, "totalFilesExpectedToWrite = %d, totalFilesWritten = %d", this.totalFilesExpectedToWrite, this.totalFilesWritten));
 
-//        [_sqliteQueue addOperationWithBlock:^{
-        // Get the actual URLs
-        Iterator<String> urlIter = sqliteReadOfflineMapURLsToBeDownloadedLimit(-1);
-        if (urlIter == null) {
-            // The operation failed for one reason or another (e.g. we're on the main thread).
-            closeDatabase();
-            return;
-        }
+        final int urlCount = urls.size();
+        final int totalCount = urls.size() + generator.getURLCount();
+        Iterator<String> urlIter = new Iterator<String>() {
+            private int index = 0;
+
+            @Override
+            public boolean hasNext() {
+                synchronized (this) {
+                    return index < totalCount;
+                }
+            }
+
+            @Override
+            public String next() {
+                synchronized (this) {
+                    String toReturn = null;
+                    if (index < urlCount) {
+                        toReturn = urls.get(index);
+                    } else if (index < totalCount) {
+                        toReturn = generator.getURLForIndex(context, mapID, imageQuality, index - urlCount);
+                    } else {
+                        throw new NoSuchElementException();
+                    }
+                    index++;
+                    return toReturn;
+                }
+            }
+
+            @Override
+            public void remove() {
+                synchronized (this) {
+                    throw new UnsupportedOperationException();
+                }
+            }
+        };
 
         if (!urlIter.hasNext()) {
             // All files are downloaded, but hasn't been persisted yet.
@@ -403,17 +429,6 @@ public class OfflineMapDownloader implements MapboxConstants {
         else
         {
 */
-        // Update the progress
-        //
-        this.totalFilesWritten += 1;
-        notifyDelegateOfProgress();
-        Log.d(TAG, "totalFilesWritten = " + this.totalFilesWritten + "; totalFilesExpectedToWrite = " + this.totalFilesExpectedToWrite);
-
-        // If all the downloads are done, clean up and notify the delegate
-        //
-        if (this.totalFilesWritten >= this.totalFilesExpectedToWrite) {
-            finishUpDownloadProcess();
-        }
 /*
         }
 */
@@ -433,6 +448,20 @@ public class OfflineMapDownloader implements MapboxConstants {
 */
     }
 
+    private void markOneFileCompleted() {
+        // Update the progress
+        //
+        this.totalFilesWritten += 1;
+        notifyDelegateOfProgress();
+        Log.d(TAG, "totalFilesWritten = " + this.totalFilesWritten + "; totalFilesExpectedToWrite = " + this.totalFilesExpectedToWrite);
+
+        // If all the downloads are done, clean up and notify the delegate
+        //
+        if (this.totalFilesWritten >= this.totalFilesExpectedToWrite) {
+            finishUpDownloadProcess();
+        }
+    }
+
     private void finishUpDownloadProcess() {
         if (this.state == MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateRunning) {
             Log.i(TAG, "Just finished downloading all materials.  Persist the OfflineMapDatabase, change the state, and call it a day.");
@@ -440,87 +469,22 @@ public class OfflineMapDownloader implements MapboxConstants {
             //
             // Populate OfflineMapDatabase object and persist it
             OfflineMapDatabase offlineMap = completeDatabaseAndInstantiateOfflineMapWithError();
+
             if (offlineMap != null) {
                 this.mutableOfflineMapDatabases.add(offlineMap);
+            }
+
+            for (OfflineMapDatabase db : this.mutableOfflineMapDatabases) {
+                if (db.getMapID().equals(mapID)) {
+                    offlineMap = db;
+                    break;
+                }
             }
             notifyDelegateOfCompletionWithOfflineMapDatabase(offlineMap);
 
             this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateAvailable;
             notifyDelegateOfStateChange();
         }
-    }
-
-    public Iterator<String> sqliteReadOfflineMapURLsToBeDownloadedLimit(int limit) {
-        if (AppUtils.runningOnMainThread()) {
-            Log.w(TAG, "Attempting to run sqliteReadOfflineMapURLsToBeDownloadedLimit() on main thread.  Returning.");
-            return null;
-        }
-
-        // Read up to limit undownloaded urls from the offline map database
-        //
-        String query = String.format(MAPBOX_LOCALE, "SELECT %s FROM %s WHERE %s IS NULL", OfflineDatabaseHandler.FIELD_RESOURCES_URL, OfflineDatabaseHandler.TABLE_RESOURCES, OfflineDatabaseHandler.FIELD_RESOURCES_STATUS);
-        if (limit > 0) {
-            query = query + String.format(MAPBOX_LOCALE, " LIMIT %d", limit);
-        }
-        query = query + ";";
-
-        // Open the database
-        final SQLiteDatabase db = database();
-        final Cursor cursor = db.rawQuery(query, null);
-        final boolean hasFirst = cursor.moveToNext();
-        if (!hasFirst) {
-            cursor.close();
-        }
-
-        return new Iterator<String>() {
-            private boolean hasNext = hasFirst;
-            @Override
-            public boolean hasNext() {
-                return hasNext;
-            }
-
-            @Override
-            public String next() {
-                if (!hasNext) {
-                    throw new NoSuchElementException();
-                }
-
-                String result = cursor.getString(0);
-                hasNext = cursor.moveToNext();
-                if (!hasNext) {
-                    cursor.close();
-                }
-                return result;
-            }
-
-            @Override
-            public void remove() {
-                throw new UnsupportedOperationException();
-            }
-        };
-    }
-
-    public boolean sqliteQueryWrittenAndExpectedCountsWithError() {
-        // NOTE: Unlike most of the sqlite code, this method is written with the expectation that it can and will be called on the main
-        //       thread as part of init. This is also meant to be used in other contexts throught the normal serial operation queue.
-
-        // Calculate how many files need to be written in total and how many of them have been written already
-        //
-        String query = String.format(MAPBOX_LOCALE,
-                "SELECT COUNT(%s) AS totalFilesExpectedToWrite, (SELECT COUNT(%s) FROM %s WHERE %s IS NOT NULL) AS totalFilesWritten FROM %s;",
-                OfflineDatabaseHandler.FIELD_RESOURCES_URL, OfflineDatabaseHandler.FIELD_RESOURCES_URL, OfflineDatabaseHandler.TABLE_RESOURCES,
-                OfflineDatabaseHandler.FIELD_RESOURCES_STATUS, OfflineDatabaseHandler.TABLE_RESOURCES);
-
-        boolean success = false;
-        SQLiteDatabase db = database();
-        Cursor cursor = db.rawQuery(query, null);
-        cursor.moveToFirst();
-        this.totalFilesExpectedToWrite = cursor.getInt(0);
-        this.totalFilesWritten = cursor.getInt(1);
-        cursor.close();
-        success = true;
-
-        return success;
     }
 
     public boolean sqliteCreateDatabaseUsingMetadata(Hashtable<String, String> metadata, List<String> urlStrings, OfflineMapURLGenerator generator) {
@@ -548,17 +512,6 @@ public class OfflineMapDownloader implements MapboxConstants {
             cv.put(OfflineDatabaseHandler.FIELD_METADATA_NAME, key);
             cv.put(OfflineDatabaseHandler.FIELD_METADATA_VALUE, metadata.get(key));
             db.replace(OfflineDatabaseHandler.TABLE_METADATA, null, cv);
-        }
-        for (String url : urlStrings) {
-            ContentValues cv = new ContentValues();
-            cv.put(OfflineDatabaseHandler.FIELD_RESOURCES_URL, url);
-            db.insert(OfflineDatabaseHandler.TABLE_RESOURCES, null, cv);
-        }
-        for (int generatedIndex = 0; generatedIndex < generator.getURLCount(); generatedIndex++) {
-            ContentValues cv = new ContentValues();
-            String url = generator.getURLForIndex(context, mapID, imageQuality, generatedIndex);
-            cv.put(OfflineDatabaseHandler.FIELD_RESOURCES_URL, url);
-            db.insert(OfflineDatabaseHandler.TABLE_RESOURCES, null, cv);
         }
         db.setTransactionSuccessful();
         db.endTransaction();
@@ -620,12 +573,6 @@ public class OfflineMapDownloader implements MapboxConstants {
             return;
         }
 
-        // Make sure this completed map doesn't exist already
-        if (isMapIdAlreadyAnOfflineMapDatabase(mapID)) {
-            Log.w(TAG, String.format(MAPBOX_LOCALE, "MapId '%s' has already been downloaded.  Please delete it before trying to download again.", mapID));
-            return;
-        }
-
 //        [self setUpNewDataSession];
 
 //        [_backgroundWorkQueue addOperationWithBlock:^{
@@ -638,8 +585,6 @@ public class OfflineMapDownloader implements MapboxConstants {
         this.includesMarkers = includeMarkers;
         this.imageQuality = imageQuality;
         this.mapRegion = mapRegion;
-        this.minimumZ = minimumZ;
-        this.maximumZ = maximumZ;
         this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateRunning;
 //        [self notifyDelegateOfStateChange];
 
@@ -770,7 +715,7 @@ public class OfflineMapDownloader implements MapboxConstants {
                     return null;
                 }
                 notifyDelegateOfInitialCount();
-                startDownloading();
+                startDownloading(urls, generator);
                 return null;
             }
 

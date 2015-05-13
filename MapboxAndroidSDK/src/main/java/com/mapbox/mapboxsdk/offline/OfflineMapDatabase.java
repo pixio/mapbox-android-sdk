@@ -102,6 +102,10 @@ public class OfflineMapDatabase implements MapboxConstants {
     }
 
     public byte[] dataForURL(String url) throws OfflineDatabaseException {
+        if (invalid) {
+            return null;
+        }
+
         byte[] data = sqliteDataForURL(url);
 /*
         if (data == null || data.length == 0) {
@@ -117,6 +121,10 @@ public class OfflineMapDatabase implements MapboxConstants {
     }
 
     public String sqliteMetadataForName(String name) {
+        if (invalid) {
+            return null;
+        }
+
         if (mapID == null) {
             return null;
         }
@@ -140,6 +148,10 @@ public class OfflineMapDatabase implements MapboxConstants {
     }
 
     public byte[] sqliteDataForURL(String url) {
+        if (invalid) {
+            return null;
+        }
+
         if (mapID == null) {
             return null;
         }
