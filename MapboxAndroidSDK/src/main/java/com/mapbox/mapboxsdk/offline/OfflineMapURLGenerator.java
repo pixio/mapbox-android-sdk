@@ -62,6 +62,8 @@ public class OfflineMapURLGenerator {
             int urlsInThisLevel = (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1);
             if (index < urlsInThisLevel) {
                 break;
+            } else {
+                index -= urlsInThisLevel;
             }
         }
 
