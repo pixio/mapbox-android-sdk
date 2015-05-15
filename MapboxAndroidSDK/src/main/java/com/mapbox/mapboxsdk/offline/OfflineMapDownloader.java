@@ -44,8 +44,6 @@ public class OfflineMapDownloader implements MapboxConstants {
 
     private Context context;
 
-    private SQLiteDatabase db;
-
     /**
      * The possible states of the offline map downloader.
      */
