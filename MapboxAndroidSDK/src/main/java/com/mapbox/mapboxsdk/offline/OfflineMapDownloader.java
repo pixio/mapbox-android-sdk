@@ -1,9 +1,7 @@
 package com.mapbox.mapboxsdk.offline;
 
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.AsyncTask;
 import android.text.TextUtils;

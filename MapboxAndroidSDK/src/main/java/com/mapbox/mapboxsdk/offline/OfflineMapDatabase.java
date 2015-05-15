@@ -5,13 +5,8 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.text.TextUtils;
-import android.util.Log;
 import com.mapbox.mapboxsdk.constants.MapboxConstants;
 import com.mapbox.mapboxsdk.exceptions.OfflineDatabaseException;
-import com.mapbox.mapboxsdk.geometry.CoordinateRegion;
-import com.mapbox.mapboxsdk.geometry.CoordinateSpan;
-import com.mapbox.mapboxsdk.geometry.LatLng;
-import java.util.Date;
 import java.util.Map;
 
 public class OfflineMapDatabase implements MapboxConstants {
@@ -169,7 +164,6 @@ public class OfflineMapDatabase implements MapboxConstants {
 
         refreshMetadata();
     }
-
 
     private boolean refreshMetadata() {
         synchronized (lock) {
