@@ -130,14 +130,16 @@ public class OfflineMapDatabase implements MapboxConstants {
 
     public String sqliteMetadataForName(String name) {
         SQLiteDatabase db = database();
-        if (db == null)
+        if (db == null) {
             return null;
+        }
 
         String query = "SELECT " + OfflineDatabaseHandler.FIELD_METADATA_VALUE + " FROM " + OfflineDatabaseHandler.TABLE_METADATA + " WHERE " + OfflineDatabaseHandler.FIELD_METADATA_NAME + "=?;";
         String[] selectionArgs = new String[] { name };
         Cursor cursor = db.rawQuery(query, selectionArgs);
-        if (cursor == null)
+        if (cursor == null) {
             return null;
+        }
 
         String res = null;
         if (cursor.moveToFirst()) {
@@ -212,14 +214,16 @@ public class OfflineMapDatabase implements MapboxConstants {
 
     public byte[] sqliteDataForURL(String url) {
         SQLiteDatabase db = database();
-        if (db == null)
+        if (db == null) {
             return null;
+        }
 
         String query = "SELECT " + OfflineDatabaseHandler.FIELD_RESOURCES_DATA + " FROM " + OfflineDatabaseHandler.TABLE_RESOURCES + " WHERE " + OfflineDatabaseHandler.FIELD_RESOURCES_URL + "=?;";
         String[] selectionArgs = new String[] { url };
         Cursor cursor = db.rawQuery(query, selectionArgs);
-        if (cursor == null)
+        if (cursor == null) {
             return null;
+        }
 
         byte[] res = null;
         if (cursor.moveToFirst()) {
