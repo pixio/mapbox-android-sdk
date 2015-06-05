@@ -251,6 +251,16 @@ public class OfflineMapDatabase implements MapboxConstants {
         return alreadyDownloaded;
     }
 
+    public void deleteDataForURL(String url) {
+        SQLiteDatabase db = database();
+        if (db == null) {
+            return;
+        }
+
+        String[] whereArgs = new String[] { url };
+        db.delete(OfflineDatabaseHandler.TABLE_RESOURCES, OfflineDatabaseHandler.FIELD_RESOURCES_URL + " = ?", whereArgs);
+    }
+
     private SQLiteDatabase database() {
         synchronized (lock) {
             if (invalid || mapID == null) {
