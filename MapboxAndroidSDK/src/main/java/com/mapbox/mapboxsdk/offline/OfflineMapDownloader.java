@@ -507,6 +507,15 @@ public class OfflineMapDownloader implements MapboxConstants {
             metadataDictionary.put("includesMetadata", includeMetadata ? "YES" : "NO");
             metadataDictionary.put("includesMarkers", includeMarkers ? "YES" : "NO");
         } else {
+            RasterImageQuality previousImageQuality = this.downloadingDatabase.getImageQuality();
+            if (previousImageQuality != imageQuality) {
+                String errorString = String.format(MAPBOX_LOCALE,
+                        "Incompatible imageQuality parameters: %s in db, trying to download with %s",
+                        previousImageQuality.toString(),
+                        imageQuality.toString());
+                cancelImmediatelyWithError(errorString);
+                return;
+            }
             boolean didIncludeMarkers = this.downloadingDatabase.includesMarkers();
             boolean didIncludeMetadata = this.downloadingDatabase.includesMetadata();
 
