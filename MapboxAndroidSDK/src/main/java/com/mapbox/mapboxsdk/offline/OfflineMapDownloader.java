@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
@@ -408,7 +409,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         }
     }
 
-    public boolean sqliteCreateOrUpdateDatabaseUsingMetadata(String mapID, Hashtable<String, String> metadata, List<String> urlStrings, OfflineMapURLGenerator generator) {
+    public boolean sqliteCreateOrUpdateDatabaseUsingMetadata(String mapID, Map<String, String> metadata, List<String> urlStrings, OfflineMapURLGenerator generator) {
         if (AppUtils.runningOnMainThread()) {
             Log.w(TAG, "sqliteCreateOrUpdateDatabaseUsingMetadata() running on main thread.  Returning.");
             return false;
@@ -427,9 +428,8 @@ public class OfflineMapDownloader implements MapboxConstants {
         if (this.downloadingDatabase != null) {
             this.downloadingDatabase.updateMetadata(metadata);
         } else {
-            this.downloadingDatabase = new OfflineMapDatabase(context, mapID, metadata);
-            boolean initialized = this.downloadingDatabase.initializeDatabase();
-            if (!initialized) {
+            this.downloadingDatabase = createNewDatabase(metadata);
+            if (this.downloadingDatabase == null) {
                 return false;
             }
         }
@@ -475,6 +475,35 @@ public class OfflineMapDownloader implements MapboxConstants {
     API: Begin an offline map download
 */
 
+    private Map<String, String> metadataForNewDatabase(String mapID, boolean includeMarkers, boolean includeMetadata, RasterImageQuality imageQuality) {
+        final Hashtable<String, String> metadataDictionary = new Hashtable<String, String>();
+        metadataDictionary.put("uniqueID", UUID.randomUUID().toString());
+        metadataDictionary.put("mapID", mapID);
+        metadataDictionary.put("imageQuality", String.format(MAPBOX_LOCALE, "%d", imageQuality.getValue()));
+        metadataDictionary.put("includesMetadata", includeMetadata ? "YES" : "NO");
+        metadataDictionary.put("includesMarkers", includeMarkers ? "YES" : "NO");
+        return metadataDictionary;
+    }
+
+    public OfflineMapDatabase createEmptyMapDatabase(String mapID, RasterImageQuality imageQuality) {
+        OfflineMapDatabase db = getOfflineMapDatabaseWithID(mapID);
+        if (db != null) {
+            if (db.getImageQuality() != imageQuality) {
+                Log.w(TAG, "creating (existing) database with mismatched image quality");
+                return null;
+            } else {
+                return db;
+            }
+        }
+
+        Map<String, String> metadata = metadataForNewDatabase(mapID, false, false, imageQuality);
+        db = createNewDatabase(metadata);
+        if (db != null && !mutableOfflineMapDatabases.contains(db)) {
+            mutableOfflineMapDatabases.add(db);
+        }
+        return db;
+    }
+
     public void beginDownloadingMapID(String mapID, CoordinateRegion mapRegion, Integer minimumZ, Integer maximumZ) {
         beginDownloadingMapID(mapID, mapRegion, minimumZ, maximumZ, true, true, RasterImageQuality.MBXRasterImageQualityFull);
     }
@@ -499,14 +528,11 @@ public class OfflineMapDownloader implements MapboxConstants {
         this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateRunning;
 
         this.downloadingDatabase = getOfflineMapDatabaseWithID(mapID);
-        final Hashtable<String, String> metadataDictionary = new Hashtable<String, String>();
+        final Map<String, String> metadataDictionary;
         if (this.downloadingDatabase == null) {
-            metadataDictionary.put("uniqueID", UUID.randomUUID().toString());
-            metadataDictionary.put("mapID", mapID);
-            metadataDictionary.put("imageQuality", String.format(MAPBOX_LOCALE, "%d", imageQuality.getValue()));
-            metadataDictionary.put("includesMetadata", includeMetadata ? "YES" : "NO");
-            metadataDictionary.put("includesMarkers", includeMarkers ? "YES" : "NO");
+            metadataDictionary = metadataForNewDatabase(mapID, includeMarkers, includeMetadata, imageQuality);
         } else {
+            Hashtable<String, String> makingMetadata = new Hashtable<String, String>();
             RasterImageQuality previousImageQuality = this.downloadingDatabase.getImageQuality();
             if (previousImageQuality != imageQuality) {
                 String errorString = String.format(MAPBOX_LOCALE,
@@ -520,18 +546,19 @@ public class OfflineMapDownloader implements MapboxConstants {
             boolean didIncludeMetadata = this.downloadingDatabase.includesMetadata();
 
             if (!didIncludeMarkers && includeMarkers) {
-                metadataDictionary.put("includesMarkers", "YES");
+                makingMetadata.put("includesMarkers", "YES");
             } else {
                 // Don't download the data if it's already in the db or not requested
                 includeMarkers = false;
             }
 
             if (!didIncludeMetadata && includeMetadata) {
-                metadataDictionary.put("includesMetadata", "YES");
+                makingMetadata.put("includesMetadata", "YES");
             } else {
                 // Don't download the data if it's already in the db or not requested
                 includeMetadata = false;
             }
+            metadataDictionary = makingMetadata;
         }
 
         /*
@@ -647,13 +674,30 @@ public class OfflineMapDownloader implements MapboxConstants {
         }
     }
 
+    private OfflineMapDatabase createNewDatabase(Map<String, String> metadata) {
+        String mapID = metadata.get("mapID");
+        OfflineMapDatabase db = new OfflineMapDatabase(context, mapID, metadata);
+        boolean initialized = db.initializeDatabase();
+        if (!initialized) {
+            String dbPath = db.getPath();
+            db.closeDatabase();
+            if (dbPath != null) {
+                File dbFile = new File(dbPath);
+                dbFile.delete();
+            }
+            return null;
+        } else {
+            return db;
+        }
+    }
+
     /**
      * Private method for Starting the Whole Download Process
      *
      * @param metadata Metadata
      * @param urls     Map urls
      */
-    private void startDownloadProcess(final String mapID, final Hashtable<String, String> metadata, final List<String> urls, final OfflineMapURLGenerator generator) {
+    private void startDownloadProcess(final String mapID, final Map<String, String> metadata, final List<String> urls, final OfflineMapURLGenerator generator) {
         AsyncTask<Void, Void, Thread> startDownload = new AsyncTask<Void, Void, Thread>() {
             @Override
             protected Thread doInBackground(Void... params) {
