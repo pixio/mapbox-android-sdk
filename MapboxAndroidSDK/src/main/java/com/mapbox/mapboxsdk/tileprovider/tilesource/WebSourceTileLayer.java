@@ -170,7 +170,7 @@ public class WebSourceTileLayer extends TileLayer implements MapboxConstants {
         }
 
         try {
-            return internalGetBitmapFromURL(url);
+            return internalGetBitmapFromURL(mapTile, url);
         } catch (final Throwable e) {
             Log.e(TAG, "Error downloading MapTile: " + url + ":" + e);
         } finally {
@@ -179,7 +179,7 @@ public class WebSourceTileLayer extends TileLayer implements MapboxConstants {
         return null;
     }
 
-    public Bitmap internalGetBitmapFromURL(String url) {
+    public Bitmap internalGetBitmapFromURL(MapTile mapTile, String url) {
         try {
             HttpURLConnection connection = NetworkUtils.getHttpURLConnection(new URL(url));
             byte[] data = readFully(connection.getInputStream());

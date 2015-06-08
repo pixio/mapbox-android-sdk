@@ -8,13 +8,15 @@ import android.util.Log;
 
 import com.mapbox.mapboxsdk.constants.MapboxConstants;
 import com.mapbox.mapboxsdk.offline.OfflineMapDatabase;
-import com.mapbox.mapboxsdk.offline.OfflineMapDownloader;
+import com.mapbox.mapboxsdk.tileprovider.MapTile;
 import com.mapbox.mapboxsdk.util.MapboxUtils;
 import com.mapbox.mapboxsdk.util.NetworkUtils;
 import com.mapbox.mapboxsdk.views.util.constants.MapViewConstants;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -26,7 +28,8 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
     private static final String TAG = "MapboxTileLayer";
     private String mId;
     private Context mContext;
-    private OfflineMapDatabase mOfflineDatabase;
+    private boolean mOfflineMode = false;
+    private ArrayList<OfflineMapDatabase> mOfflineDatabases = new ArrayList<OfflineMapDatabase>();
     private final Object lock = new Object();
 
     /**
@@ -74,19 +77,37 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
         return mId;
     }
 
-    public Bitmap internalGetBitmapFromURL(String url) {
+    @Override
+    public Bitmap internalGetBitmapFromURL(MapTile mapTile, String url) {
         try {
-            OfflineMapDatabase db = getOfflineDatabase();
             byte[] data = null;
-            if (db != null) {
-                data = db.sqliteDataForURL(url);
+            synchronized (lock) {
+                for (OfflineMapDatabase db : mOfflineDatabases) {
+                    String thisDatabaseUrl = MapboxUtils.getMapTileURL(mContext, db.getMapID(), mapTile.getZ(), mapTile.getX(), mapTile.getY(), RasterImageQuality.MBXRasterImageQualityJPEG90);
+                    data = db.sqliteDataForURL(thisDatabaseUrl);
+                    if (data != null) {
+                        break;
+                    }
+                }
             }
 
-            if (data == null) {
+            boolean inOfflineMode;
+            synchronized (lock) {
+                inOfflineMode = mOfflineMode;
+            }
+
+            if (data == null && !inOfflineMode) {
                 HttpURLConnection connection = NetworkUtils.getHttpURLConnection(new URL(url));
                 data = readFully(connection.getInputStream());
-                if (db != null) {
-                    db.setURLData(url, data);
+
+                // This whole section of code is locked to prevent the dbToSet.setURLData call from happening
+                // after the databases are supposed to all be closed. The result would be the dbToSet leaving
+                // a database connection open internally. Not the end of the world, but I wanted to prevent it.
+                synchronized (lock) {
+                    OfflineMapDatabase dbToSet = dbForThisLayer();
+                    if (dbToSet != null) {
+                        dbToSet.setURLData(url, data);
+                    }
                 }
             }
 
@@ -101,20 +122,43 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
         }
     }
 
-    @Override
-    public void detach() {
-        if (mOfflineDatabase != null) {
-            mOfflineDatabase.closeDatabase();
+    private void closeDatabases() {
+        synchronized (lock) {
+            for (OfflineMapDatabase database : mOfflineDatabases) {
+                database.closeDatabase();
+            }
         }
     }
 
-    private OfflineMapDatabase getOfflineDatabase() {
+    private OfflineMapDatabase dbForThisLayer() {
         synchronized (lock) {
-            if (mOfflineDatabase == null) {
-                OfflineMapDownloader downloader = OfflineMapDownloader.getOfflineMapDownloader(mContext);
-                mOfflineDatabase = downloader.getOfflineMapDatabaseWithID(mId);
+            for (OfflineMapDatabase db : mOfflineDatabases) {
+                if (db.getMapID().equals(mId)) {
+                    return db;
+                }
             }
-            return mOfflineDatabase;
+        }
+        return null;
+    }
+
+    @Override
+    public void detach() {
+        closeDatabases();
+    }
+
+    public void setOfflineDatabases(List<OfflineMapDatabase> dbs) {
+        synchronized (lock) {
+            closeDatabases();
+            mOfflineDatabases.clear();
+            if (dbs != null) {
+                mOfflineDatabases.addAll(dbs);
+            }
+        }
+    }
+
+    public void setOfflineMode(boolean inOfflineMode) {
+        synchronized (lock) {
+            mOfflineMode = inOfflineMode;
         }
     }
 
