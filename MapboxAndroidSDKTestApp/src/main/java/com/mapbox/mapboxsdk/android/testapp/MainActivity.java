@@ -54,6 +54,7 @@ public class MainActivity extends ActionBarActivity {
         testFragmentNames.add(getString(R.string.customMarkerTestMap));
         testFragmentNames.add(getString(R.string.rotatedMapTestMap));
         testFragmentNames.add(getString(R.string.clusteredMarkersTestMap));
+        testFragmentNames.add(getString(R.string.mbTilesTestMap));
 
         mDrawerList.setAdapter(new ArrayAdapter<String>(this, R.layout.drawer_list_item, testFragmentNames));
         // Set the list's click listener
@@ -179,6 +180,9 @@ public class MainActivity extends ActionBarActivity {
                 break;
             case 17:
                 fragment = new ClusteredMarkersTestFragment();
+                break;
+            case 18:
+                fragment = new MBTilesTestFragment();
                 break;
             default:
                 fragment = new MainTestFragment();
