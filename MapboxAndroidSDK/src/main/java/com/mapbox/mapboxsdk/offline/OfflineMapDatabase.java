@@ -199,17 +199,12 @@ public class OfflineMapDatabase implements MapboxConstants {
         if (db == null) {
             return;
         }
-        db.beginTransaction();
-
 //      String query2 = "INSERT INTO data(value) VALUES(?);";
         ContentValues values = new ContentValues();
         values.put(OfflineDatabaseHandler.FIELD_RESOURCES_URL, url);
         values.put(OfflineDatabaseHandler.FIELD_RESOURCES_DATA, data);
         values.put(OfflineDatabaseHandler.FIELD_RESOURCES_STATUS, status);
         db.replace(OfflineDatabaseHandler.TABLE_RESOURCES, null, values);
-
-        db.setTransactionSuccessful();
-        db.endTransaction();
     }
 
     public byte[] sqliteDataForURL(String url) {

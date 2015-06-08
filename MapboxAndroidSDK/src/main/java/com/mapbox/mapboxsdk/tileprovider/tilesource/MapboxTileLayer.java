@@ -1,9 +1,20 @@
 package com.mapbox.mapboxsdk.tileprovider.tilesource;
 
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.text.TextUtils;
+import android.util.Log;
+
 import com.mapbox.mapboxsdk.constants.MapboxConstants;
+import com.mapbox.mapboxsdk.offline.OfflineMapDatabase;
+import com.mapbox.mapboxsdk.offline.OfflineMapDownloader;
 import com.mapbox.mapboxsdk.util.MapboxUtils;
+import com.mapbox.mapboxsdk.util.NetworkUtils;
 import com.mapbox.mapboxsdk.views.util.constants.MapViewConstants;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Locale;
 
 /**
@@ -14,18 +25,22 @@ import java.util.Locale;
 public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstants, MapboxConstants {
     private static final String TAG = "MapboxTileLayer";
     private String mId;
+    private Context mContext;
+    private OfflineMapDatabase mOfflineDatabase;
+    private final Object lock = new Object();
 
     /**
      * Initialize a new tile layer, directed at a hosted Mapbox tilesource.
      *
      * @param mapId a valid mapid, of the form account.map
      */
-    public MapboxTileLayer(String mapId) {
-        this(mapId, true);
+    public MapboxTileLayer(Context context, String mapId) {
+        this(context, mapId, true);
     }
 
-    public MapboxTileLayer(String mapId, boolean enableSSL) {
+    public MapboxTileLayer(Context context, String mapId, boolean enableSSL) {
         super(mapId, mapId, enableSSL);
+        mContext = context;
     }
 
     @Override
@@ -58,4 +73,49 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
     public String getCacheKey() {
         return mId;
     }
+
+    public Bitmap internalGetBitmapFromURL(String url) {
+        try {
+            OfflineMapDatabase db = getOfflineDatabase();
+            byte[] data = null;
+            if (db != null) {
+                data = db.sqliteDataForURL(url);
+            }
+
+            if (data == null) {
+                HttpURLConnection connection = NetworkUtils.getHttpURLConnection(new URL(url));
+                data = readFully(connection.getInputStream());
+                if (db != null) {
+                    db.setURLData(url, data);
+                }
+            }
+
+            if (data != null) {
+                return BitmapFactory.decodeByteArray(data, 0, data.length);
+            } else {
+                return null;
+            }
+        } catch (final Throwable e) {
+            Log.e(TAG, "Error downloading MapTile: " + url + ":" + e);
+            return null;
+        }
+    }
+
+    @Override
+    public void detach() {
+        if (mOfflineDatabase != null) {
+            mOfflineDatabase.closeDatabase();
+        }
+    }
+
+    private OfflineMapDatabase getOfflineDatabase() {
+        synchronized (lock) {
+            if (mOfflineDatabase == null) {
+                OfflineMapDownloader downloader = OfflineMapDownloader.getOfflineMapDownloader(mContext);
+                mOfflineDatabase = downloader.getOfflineMapDatabaseWithID(mId);
+            }
+            return mOfflineDatabase;
+        }
+    }
+
 }

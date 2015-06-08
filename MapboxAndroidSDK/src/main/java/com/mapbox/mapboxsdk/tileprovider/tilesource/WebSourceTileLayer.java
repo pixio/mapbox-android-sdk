@@ -14,6 +14,10 @@ import com.mapbox.mapboxsdk.tileprovider.modules.MapTileDownloader;
 import com.mapbox.mapboxsdk.util.NetworkUtils;
 import com.mapbox.mapboxsdk.views.util.TileLoadedListener;
 import com.mapbox.mapboxsdk.views.util.TilesLoadedListener;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -102,52 +106,49 @@ public class WebSourceTileLayer extends TileLayer implements MapboxConstants {
     @Override
     public CacheableBitmapDrawable getDrawableFromTile(final MapTileDownloader downloader,
             final MapTile aTile, boolean hdpi) {
-        if (downloader.isNetworkAvailable()) {
-            TilesLoadedListener listener = downloader.getTilesLoadedListener();
+        TilesLoadedListener listener = downloader.getTilesLoadedListener();
 
-            boolean tempHDPI = hdpi;
-            if (this instanceof MapboxTileLayer) {
-                tempHDPI = false;
-            }
-
-            String[] urls = getTileURLs(aTile, tempHDPI);
-            CacheableBitmapDrawable result = null;
-            Bitmap resultBitmap = null;
-            if (urls != null) {
-                MapTileCache cache = downloader.getCache();
-                if (listener != null) {
-                    listener.onTilesLoadStarted();
-                }
-                for (final String url : urls) {
-                    Bitmap bitmap = getBitmapFromURL(aTile, url, cache);
-                    if (bitmap == null) {
-                        continue;
-                    }
-                    if (resultBitmap == null) {
-                        resultBitmap = bitmap;
-                    } else {
-                        resultBitmap = compositeBitmaps(bitmap, resultBitmap);
-                    }
-                }
-                if (resultBitmap != null) {
-                    //get drawable by putting it into cache (memory and disk)
-                    result = cache.putTileBitmap(aTile, resultBitmap);
-                }
-                if (checkThreadControl()) {
-                    if (listener != null) {
-                        listener.onTilesLoaded();
-                    }
-                }
-            }
-
-            if (result != null) {
-                TileLoadedListener listener2 = downloader.getTileLoadedListener();
-                result = listener2 != null ? listener2.onTileLoaded(result) : result;
-            }
-
-            return result;
+        boolean tempHDPI = hdpi;
+        if (this instanceof MapboxTileLayer) {
+            tempHDPI = false;
         }
-        return null;
+
+        String[] urls = getTileURLs(aTile, tempHDPI);
+        CacheableBitmapDrawable result = null;
+        Bitmap resultBitmap = null;
+        if (urls != null) {
+            MapTileCache cache = downloader.getCache();
+            if (listener != null) {
+                listener.onTilesLoadStarted();
+            }
+            for (final String url : urls) {
+                Bitmap bitmap = getBitmapFromURL(aTile, url, cache);
+                if (bitmap == null) {
+                    continue;
+                }
+                if (resultBitmap == null) {
+                    resultBitmap = bitmap;
+                } else {
+                    resultBitmap = compositeBitmaps(bitmap, resultBitmap);
+                }
+            }
+            if (resultBitmap != null) {
+                //get drawable by putting it into cache (memory and disk)
+                result = cache.putTileBitmap(aTile, resultBitmap);
+            }
+            if (checkThreadControl()) {
+                if (listener != null) {
+                    listener.onTilesLoaded();
+                }
+            }
+        }
+
+        if (result != null) {
+            TileLoadedListener listener2 = downloader.getTileLoadedListener();
+            result = listener2 != null ? listener2.onTileLoaded(result) : result;
+        }
+
+        return result;
     }
 
     /**
@@ -169,17 +170,32 @@ public class WebSourceTileLayer extends TileLayer implements MapboxConstants {
         }
 
         try {
-            HttpURLConnection connection = NetworkUtils.getHttpURLConnection(new URL(url));
-            Bitmap bitmap = BitmapFactory.decodeStream(connection.getInputStream());
-            if (bitmap != null) {
-                aCache.putTileInMemoryCache(mapTile, bitmap);
-            }
-            return bitmap;
+            return internalGetBitmapFromURL(url);
         } catch (final Throwable e) {
             Log.e(TAG, "Error downloading MapTile: " + url + ":" + e);
         } finally {
             activeThreads.decrementAndGet();
         }
         return null;
+    }
+
+    public Bitmap internalGetBitmapFromURL(String url) {
+        try {
+            HttpURLConnection connection = NetworkUtils.getHttpURLConnection(new URL(url));
+            byte[] data = readFully(connection.getInputStream());
+            return BitmapFactory.decodeByteArray(data, 0, data.length);
+        } catch (final Throwable e) {
+            Log.e(TAG, "Error downloading MapTile: " + url + ":" + e);
+            return null;
+        }
+    }
+
+    protected byte[] readFully(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        for (int count; (count = in.read(buffer)) != -1;) {
+            out.write(buffer, 0, count);
+        }
+        return out.toByteArray();
     }
 }

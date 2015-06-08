@@ -197,11 +197,15 @@ public class OfflineMapDownloader implements MapboxConstants {
         this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateAvailable;
     }
 
+    private static final Object lock = new Object();
+
     public static OfflineMapDownloader getOfflineMapDownloader(Context context) {
-        if (offlineMapDownloader == null) {
-            offlineMapDownloader = new OfflineMapDownloader(context);
+        synchronized (lock) {
+            if (offlineMapDownloader == null) {
+                offlineMapDownloader = new OfflineMapDownloader(context);
+            }
+            return offlineMapDownloader;
         }
-        return offlineMapDownloader;
     }
 
     public boolean addOfflineMapDownloaderListener(OfflineMapDownloaderListener listener) {
