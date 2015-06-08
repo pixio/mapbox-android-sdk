@@ -79,21 +79,26 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
 
     @Override
     public Bitmap internalGetBitmapFromURL(MapTile mapTile, String url) {
+        boolean inOfflineMode;
+        synchronized (lock) {
+            inOfflineMode = mOfflineMode;
+        }
+
         try {
             byte[] data = null;
             synchronized (lock) {
                 for (OfflineMapDatabase db : mOfflineDatabases) {
+                    boolean useInOnlineMode = db.getMapID().equals(mId);
+                    if (!useInOnlineMode && !inOfflineMode) {
+                        continue;
+                    }
+                    
                     String thisDatabaseUrl = MapboxUtils.getMapTileURL(mContext, db.getMapID(), mapTile.getZ(), mapTile.getX(), mapTile.getY(), RasterImageQuality.MBXRasterImageQualityJPEG90);
                     data = db.sqliteDataForURL(thisDatabaseUrl);
                     if (data != null) {
                         break;
                     }
                 }
-            }
-
-            boolean inOfflineMode;
-            synchronized (lock) {
-                inOfflineMode = mOfflineMode;
             }
 
             if (data == null && !inOfflineMode) {
