@@ -52,7 +52,7 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
     @Override
     public TileLayer setURL(final String aUrl) {
         if (!TextUtils.isEmpty(aUrl) && !aUrl.toLowerCase(Locale.US).contains("http://") && !aUrl.toLowerCase(Locale.US).contains("https://")) {
-            super.setURL(MAPBOX_BASE_URL_V4 + aUrl + "/{z}/{x}/{y}{2x}.png?access_token=" + MapboxUtils.getAccessToken());
+            super.setURL(MAPBOX_BASE_URL_V4 + aUrl + "/{z}/{x}/{y}{2x}.jpg90?access_token=" + MapboxUtils.getAccessToken());
         } else {
             super.setURL(aUrl);
         }
