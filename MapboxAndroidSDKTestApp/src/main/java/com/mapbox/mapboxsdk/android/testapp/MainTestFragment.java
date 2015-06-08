@@ -209,7 +209,7 @@ public class MainTestFragment extends Fragment {
                     .setMinimumZoomLevel(1)
                     .setMaximumZoomLevel(18);
         } else {
-            source = new MapboxTileLayer(layer);
+            source = new MapboxTileLayer(getActivity(), layer);
         }
         mv.setTileSource(source);
         box = source.getBoundingBox();
