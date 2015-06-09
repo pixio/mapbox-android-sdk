@@ -36,6 +36,8 @@ import java.util.UUID;
 
 public class OfflineMapDownloader implements MapboxConstants {
 
+    private static final String DB_PREFIX = "com.mapbox.mapboxsdk.offline-";
+
     private static final String TAG = "OfflineMapDownloader";
 
     private static OfflineMapDownloader offlineMapDownloader;
@@ -183,7 +185,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         // Load OfflineMapDatabases from File System
         ContextWrapper cw = new ContextWrapper(context);
         for (String s : cw.databaseList()) {
-            if (!s.toLowerCase().contains("journal")) {
+            if (s.startsWith(DB_PREFIX) && !s.toLowerCase().contains("journal")) {
                 // Create the Database Object
                 OfflineMapDatabase omd = new OfflineMapDatabase(context, s);
                 boolean success = omd.initializeDatabase();
@@ -427,7 +429,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         if (this.downloadingDatabase != null) {
             this.downloadingDatabase.updateMetadata(metadata);
         } else {
-            this.downloadingDatabase = new OfflineMapDatabase(context, mapID, metadata);
+            this.downloadingDatabase = new OfflineMapDatabase(context, DB_PREFIX + mapID, metadata);
             boolean initialized = this.downloadingDatabase.initializeDatabase();
             if (!initialized) {
                 return false;
