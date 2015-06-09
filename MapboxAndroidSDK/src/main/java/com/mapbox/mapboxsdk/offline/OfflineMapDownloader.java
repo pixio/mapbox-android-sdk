@@ -2,8 +2,6 @@ package com.mapbox.mapboxsdk.offline;
 
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.database.sqlite.SQLiteDatabase;
-import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -37,15 +35,18 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class OfflineMapDownloader implements MapboxConstants {
 
     private static final String TAG = "OfflineMapDownloader";
 
     private static OfflineMapDownloader offlineMapDownloader;
+    private static Handler mainHandler;
 
     private ArrayList<OfflineMapDownloaderListener> listeners;
-
+    private ExecutorService singleThreadBackground;
     private TileDownloadListener mListener;
 
     private Context context;
@@ -98,11 +99,11 @@ public class OfflineMapDownloader implements MapboxConstants {
 //                    [self notifyDelegateOfNetworkConnectivityError:error];
             }
 */
-            AsyncTask<String, Void, Void> task = new AsyncTask<String, Void, Void>() {
+            final String url = itr.next();
+            singleThreadBackground.submit(new Runnable() {
                 @Override
-                protected Void doInBackground(String... params) {
+                public void run() {
                     HttpURLConnection conn = null;
-                    String url = params[0];
                     boolean alreadyDownloaded = downloadingDatabase.isURLAlreadyInDatabase(url);
                     if (!alreadyDownloaded) {
                         try {
@@ -114,7 +115,7 @@ public class OfflineMapDownloader implements MapboxConstants {
                             if (rc != HttpURLConnection.HTTP_OK) {
                                 String msg = String.format(MAPBOX_LOCALE, "HTTP Error connection.  Response Code = %d for url = %s", rc, conn.getURL().toString());
                                 Log.w(TAG, msg);
-                                notifyDelegateOfHTTPStatusError(rc, params[0]);
+                                notifyDelegateOfHTTPStatusError(rc, url);
                                 throw new IOException(msg);
                             }
 
@@ -153,10 +154,8 @@ public class OfflineMapDownloader implements MapboxConstants {
                     notifyOfCheckOrDownload(url, downloadingDatabase);
                     markOneFileCompleted();
                     startDownloadTask();
-                    return null;
                 }
-            };
-            task.execute(itr.next());
+            });
         }
     }
 
@@ -202,6 +201,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         }
 
         this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateAvailable;
+        singleThreadBackground = Executors.newSingleThreadExecutor();
     }
 
     private static final Object lock = new Object();
@@ -210,6 +210,7 @@ public class OfflineMapDownloader implements MapboxConstants {
         synchronized (lock) {
             if (offlineMapDownloader == null) {
                 offlineMapDownloader = new OfflineMapDownloader(context);
+                mainHandler = new Handler(Looper.getMainLooper());
             }
             return offlineMapDownloader;
         }
@@ -624,9 +625,9 @@ public class OfflineMapDownloader implements MapboxConstants {
                 return;
             }
 
-            AsyncTask<Void, Void, Void> foo = new AsyncTask<Void, Void, Void>() {
+            singleThreadBackground.submit(new Runnable() {
                 @Override
-                protected Void doInBackground(Void... params) {
+                public void run() {
                     try {
                         HttpURLConnection conn = NetworkUtils.getHttpURLConnection(new URL(geojson));
                         conn.setConnectTimeout(60000);
@@ -661,23 +662,10 @@ public class OfflineMapDownloader implements MapboxConstants {
                         [self notifyDelegateOfHTTPStatusError:((NSHTTPURLResponse *)response).statusCode url:response.URL];
 */
                     }
-                    return null;
-                }
-
-                @Override
-                protected void onPostExecute(Void aVoid) {
-                    super.onPostExecute(aVoid);
                     Log.i(TAG, "Done figuring out marker icons, so now start downloading everything.");
-
-                    // ==========================================================================================================
-                    // == WARNING! WARNING! WARNING!                                                                           ==
-                    // == This stuff is a duplicate of the code immediately below it, but this copy is inside of a completion  ==
-                    // == block while the other isn't. You will be sad and confused if you try to eliminate the "duplication". ==
-                    //===========================================================================================================
                     startDownloadProcess(mapID, metadataDictionary, urls, generator);
                 }
-            };
-            foo.execute();
+            });
         } else {
             Log.i(TAG, "No marker icons to worry about, so just start downloading.");
             // There aren't any marker icons to worry about, so just create database and start downloading
@@ -709,23 +697,17 @@ public class OfflineMapDownloader implements MapboxConstants {
      * @param urls     Map urls
      */
     private void startDownloadProcess(final String mapID, final Map<String, String> metadata, final List<String> urls, final OfflineMapURLGenerator generator) {
-        AsyncTask<Void, Void, Thread> startDownload = new AsyncTask<Void, Void, Thread>() {
+        singleThreadBackground.submit(new Runnable() {
             @Override
-            protected Thread doInBackground(Void... params) {
+            public void run() {
                 // Do database creation / io on background thread
                 if (!sqliteCreateOrUpdateDatabaseUsingMetadata(mapID, metadata, urls, generator)) {
                     cancelImmediatelyWithError("Map Database wasn't created");
-                    return null;
                 }
                 notifyDelegateOfInitialCount();
                 startDownloading(urls, generator);
-                return null;
             }
-
-        };
-
-        // Create the database and start the download
-        startDownload.execute();
+        });
     }
 
 
@@ -928,7 +910,7 @@ public class OfflineMapDownloader implements MapboxConstants {
     }
 
     private void notifyOfDownload() {
-        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+        mainHandler.post(new Runnable() {
             @Override
             public void run() {
                 if (mListener != null) {
@@ -939,7 +921,7 @@ public class OfflineMapDownloader implements MapboxConstants {
     }
 
     private void notifyOfCheckOrDownload(final String url, final OfflineMapDatabase db) {
-        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+        mainHandler.post(new Runnable() {
             @Override
             public void run() {
                 if (mListener != null) {
