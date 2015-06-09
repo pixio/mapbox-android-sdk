@@ -3,6 +3,8 @@ package com.mapbox.mapboxsdk.tileprovider.tilesource;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -29,6 +31,8 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
     private String mId;
     private Context mContext;
     private boolean mOfflineMode = false;
+    private TileDownloadListener mListener;
+
     private ArrayList<OfflineMapDatabase> mOfflineDatabases = new ArrayList<OfflineMapDatabase>();
     private final Object lock = new Object();
 
@@ -92,7 +96,7 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
                     if (!useInOnlineMode && !inOfflineMode) {
                         continue;
                     }
-                    
+
                     String thisDatabaseUrl = MapboxUtils.getMapTileURL(mContext, db.getMapID(), mapTile.getZ(), mapTile.getX(), mapTile.getY(), RasterImageQuality.MBXRasterImageQualityJPEG90);
                     data = db.sqliteDataForURL(thisDatabaseUrl);
                     if (data != null) {
@@ -114,6 +118,7 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
                         dbToSet.setURLData(url, data);
                     }
                 }
+                notifyOfDownload();
             }
 
             if (data != null) {
@@ -165,6 +170,21 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
         synchronized (lock) {
             mOfflineMode = inOfflineMode;
         }
+    }
+
+    private void notifyOfDownload() {
+        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+            @Override
+            public void run() {
+                if (mListener != null) {
+                    mListener.singleTileDownloaded();
+                }
+            }
+        });
+    }
+
+    public void setDownloadListener(TileDownloadListener l) {
+        mListener = l;
     }
 
 }

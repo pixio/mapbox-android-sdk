@@ -4,10 +4,13 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.AsyncTask;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import com.mapbox.mapboxsdk.constants.MapboxConstants;
 import com.mapbox.mapboxsdk.geometry.CoordinateRegion;
+import com.mapbox.mapboxsdk.tileprovider.tilesource.TileDownloadListener;
 import com.mapbox.mapboxsdk.util.AppUtils;
 import com.mapbox.mapboxsdk.util.DataLoadingUtils;
 import com.mapbox.mapboxsdk.util.MapboxUtils;
@@ -42,6 +45,8 @@ public class OfflineMapDownloader implements MapboxConstants {
     private static OfflineMapDownloader offlineMapDownloader;
 
     private ArrayList<OfflineMapDownloaderListener> listeners;
+
+    private TileDownloadListener mListener;
 
     private Context context;
 
@@ -134,6 +139,7 @@ public class OfflineMapDownloader implements MapboxConstants {
                                 conn.disconnect();
                             }
                             sqliteSaveDownloadedData(bais.toByteArray(), url);
+                            notifyOfDownload();
                         } catch (IOException e) {
                             Log.e(TAG, e.getMessage());
                             e.printStackTrace();
@@ -919,4 +925,20 @@ public class OfflineMapDownloader implements MapboxConstants {
         }
         return null;
     }
+
+    private void notifyOfDownload() {
+        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+            @Override
+            public void run() {
+                if (mListener != null) {
+                    mListener.singleTileDownloaded();
+                }
+            }
+        });
+    }
+
+    public void setDownloadListener(TileDownloadListener l) {
+        mListener = l;
+    }
+
 }
