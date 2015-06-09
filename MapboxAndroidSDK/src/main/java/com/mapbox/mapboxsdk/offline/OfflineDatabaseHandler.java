@@ -25,7 +25,6 @@ public class OfflineDatabaseHandler extends SQLiteOpenHelper {
 
     public static final String FIELD_RESOURCES_URL = "url";
     public static final String FIELD_RESOURCES_DATA = "data";
-    public static final String FIELD_RESOURCES_STATUS = "status";
 
     /**
      * Constructor
@@ -41,7 +40,7 @@ public class OfflineDatabaseHandler extends SQLiteOpenHelper {
         Log.i(TAG, "onCreate() called... Setting up application's database.");
         // Create The table(s)
         String metadata = "CREATE TABLE " + TABLE_METADATA + " (" + FIELD_METADATA_NAME + " TEXT UNIQUE, " + FIELD_METADATA_VALUE + " TEXT);";
-        String resources = "CREATE TABLE " + TABLE_RESOURCES + " (" + FIELD_RESOURCES_URL + " TEXT UNIQUE, " + FIELD_RESOURCES_DATA + " BLOB, " + FIELD_RESOURCES_STATUS + " TEXT);";
+        String resources = "CREATE TABLE " + TABLE_RESOURCES + " (" + FIELD_RESOURCES_URL + " TEXT UNIQUE, " + FIELD_RESOURCES_DATA + " BLOB);";
 
         db.beginTransaction();
 
