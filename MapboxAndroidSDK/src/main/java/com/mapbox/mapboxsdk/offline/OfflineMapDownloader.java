@@ -47,7 +47,9 @@ public class OfflineMapDownloader implements MapboxConstants {
 
     private ArrayList<OfflineMapDownloaderListener> listeners;
     private ExecutorService singleThreadBackground;
+    private ExecutorService downloaderPool;
     private TileDownloadListener mListener;
+    private int downloaderConcurrentCount;
 
     private Context context;
 
@@ -103,57 +105,70 @@ public class OfflineMapDownloader implements MapboxConstants {
             singleThreadBackground.submit(new Runnable() {
                 @Override
                 public void run() {
-                    HttpURLConnection conn = null;
                     boolean alreadyDownloaded = downloadingDatabase.isURLAlreadyInDatabase(url);
                     if (!alreadyDownloaded) {
-                        try {
-                            conn = NetworkUtils.getHttpURLConnection(new URL(url));
-                            Log.d(TAG, "URL to download = " + conn.getURL().toString());
-                            conn.setConnectTimeout(60000);
-                            conn.connect();
-                            int rc = conn.getResponseCode();
-                            if (rc != HttpURLConnection.HTTP_OK) {
-                                String msg = String.format(MAPBOX_LOCALE, "HTTP Error connection.  Response Code = %d for url = %s", rc, conn.getURL().toString());
-                                Log.w(TAG, msg);
-                                notifyDelegateOfHTTPStatusError(rc, url);
-                                throw new IOException(msg);
-                            }
+                        downloaderPool.submit(new Runnable() {
+                            @Override
+                            public void run() {
+                                HttpURLConnection conn = null;
+                                try {
+                                    conn = NetworkUtils.getHttpURLConnection(new URL(url));
+                                    Log.d(TAG, "URL to download = " + conn.getURL().toString());
+                                    conn.setConnectTimeout(60000);
+                                    conn.connect();
+                                    int rc = conn.getResponseCode();
+                                    if (rc != HttpURLConnection.HTTP_OK) {
+                                        String msg = String.format(MAPBOX_LOCALE, "HTTP Error connection.  Response Code = %d for url = %s", rc, conn.getURL().toString());
+                                        Log.w(TAG, msg);
+                                        notifyDelegateOfHTTPStatusError(rc, url);
+                                        throw new IOException(msg);
+                                    }
 
-                            ByteArrayOutputStream bais = new ByteArrayOutputStream();
-                            InputStream is = null;
-                            try {
-                                is = conn.getInputStream();
-                                // Read 4K at a time
-                                byte[] byteChunk = new byte[4096];
-                                int n;
+                                    ByteArrayOutputStream bais = new ByteArrayOutputStream();
+                                    InputStream is = null;
+                                    try {
+                                        is = conn.getInputStream();
+                                        // Read 4K at a time
+                                        byte[] byteChunk = new byte[4096];
+                                        int n;
 
-                                while ((n = is.read(byteChunk)) > 0) {
-                                    bais.write(byteChunk, 0, n);
+                                        while ((n = is.read(byteChunk)) > 0) {
+                                            bais.write(byteChunk, 0, n);
+                                        }
+                                    } catch (IOException e) {
+                                        Log.e(TAG, String.format(MAPBOX_LOCALE, "Failed while reading bytes from %s: %s", conn.getURL().toString(), e.getMessage()));
+                                        e.printStackTrace();
+                                    } finally {
+                                        if (is != null) {
+                                            is.close();
+                                        }
+                                        conn.disconnect();
+                                    }
+                                    sqliteSaveDownloadedData(bais.toByteArray(), url);
+                                    notifyOfDownload();
+                                } catch (IOException e) {
+                                    Log.e(TAG, e.getMessage());
+                                    e.printStackTrace();
+                                } finally {
+                                    if (conn != null) {
+                                        conn.disconnect();
+                                    }
                                 }
-                            } catch (IOException e) {
-                                Log.e(TAG, String.format(MAPBOX_LOCALE, "Failed while reading bytes from %s: %s", conn.getURL().toString(), e.getMessage()));
-                                e.printStackTrace();
-                            } finally {
-                                if (is != null) {
-                                    is.close();
-                                }
-                                conn.disconnect();
+                                singleThreadBackground.submit(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        notifyOfCheckOrDownload(url, downloadingDatabase);
+                                        markOneFileCompleted();
+                                        startDownloadTask();
+                                    }
+                                });
                             }
-                            sqliteSaveDownloadedData(bais.toByteArray(), url);
-                            notifyOfDownload();
-                        } catch (IOException e) {
-                            Log.e(TAG, e.getMessage());
-                            e.printStackTrace();
-                        } finally {
-                            if (conn != null) {
-                                conn.disconnect();
-                            }
-                        }
+                        });
+                    } else {
+                        notifyOfCheckOrDownload(url, downloadingDatabase);
+                        markOneFileCompleted();
+                        startDownloadTask();
                     }
-
-                    notifyOfCheckOrDownload(url, downloadingDatabase);
-                    markOneFileCompleted();
-                    startDownloadTask();
                 }
             });
         }
@@ -200,8 +215,10 @@ public class OfflineMapDownloader implements MapboxConstants {
             }
         }
 
+        downloaderConcurrentCount = 8;
         this.state = MBXOfflineMapDownloaderState.MBXOfflineMapDownloaderStateAvailable;
         singleThreadBackground = Executors.newSingleThreadExecutor();
+        downloaderPool = Executors.newCachedThreadPool();
     }
 
     private static final Object lock = new Object();
@@ -286,7 +303,7 @@ public class OfflineMapDownloader implements MapboxConstants {
 
         final int urlCount = urls.size();
         final int totalCount = urls.size() + generator.getURLCount();
-        Iterator<String> urlIter = new Iterator<String>() {
+        final Iterator<String> urlIter = new Iterator<String>() {
             private int index = 0;
 
             @Override
@@ -329,8 +346,14 @@ public class OfflineMapDownloader implements MapboxConstants {
             return;
         }
 
-        OfflineMapDownloadTaskManager manager = new OfflineMapDownloadTaskManager(urlIter, 8);
-        manager.start();
+        // Main thread for safe access to downloaderConcurrentCount.
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                OfflineMapDownloadTaskManager manager = new OfflineMapDownloadTaskManager(urlIter, downloaderConcurrentCount);
+                manager.start();
+            }
+        });
     }
 
 /*
@@ -907,6 +930,14 @@ public class OfflineMapDownloader implements MapboxConstants {
             }
         }
         return null;
+    }
+
+    public int getDownloaderConcurrentCount() {
+        return downloaderConcurrentCount;
+    }
+
+    public void setDownloaderConcurrentCount(int concurrentCount) {
+        downloaderConcurrentCount = concurrentCount;
     }
 
     private void notifyOfDownload() {
