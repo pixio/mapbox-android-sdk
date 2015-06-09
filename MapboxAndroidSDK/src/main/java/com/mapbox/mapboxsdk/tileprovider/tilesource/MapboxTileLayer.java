@@ -100,6 +100,7 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
                     String thisDatabaseUrl = MapboxUtils.getMapTileURL(mContext, db.getMapID(), mapTile.getZ(), mapTile.getX(), mapTile.getY(), RasterImageQuality.MBXRasterImageQualityJPEG90);
                     data = db.sqliteDataForURL(thisDatabaseUrl);
                     if (data != null) {
+                        notifyOfCheckOrDownload(thisDatabaseUrl, db);
                         break;
                     }
                 }
@@ -119,6 +120,7 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
                     }
                 }
                 notifyOfDownload();
+                notifyOfCheckOrDownload(url, null);
             }
 
             if (data != null) {
@@ -178,6 +180,17 @@ public class MapboxTileLayer extends TileJsonTileLayer implements MapViewConstan
             public void run() {
                 if (mListener != null) {
                     mListener.singleTileDownloaded();
+                }
+            }
+        });
+    }
+
+    private void notifyOfCheckOrDownload(final String url, final OfflineMapDatabase db) {
+        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+            @Override
+            public void run() {
+                if (mListener != null) {
+                    mListener.tileDownloadedOrChecked(url, db);
                 }
             }
         });

@@ -150,6 +150,7 @@ public class OfflineMapDownloader implements MapboxConstants {
                         }
                     }
 
+                    notifyOfCheckOrDownload(url, downloadingDatabase);
                     markOneFileCompleted();
                     startDownloadTask();
                     return null;
@@ -932,6 +933,17 @@ public class OfflineMapDownloader implements MapboxConstants {
             public void run() {
                 if (mListener != null) {
                     mListener.singleTileDownloaded();
+                }
+            }
+        });
+    }
+
+    private void notifyOfCheckOrDownload(final String url, final OfflineMapDatabase db) {
+        (new Handler(Looper.getMainLooper())).post(new Runnable() {
+            @Override
+            public void run() {
+                if (mListener != null) {
+                    mListener.tileDownloadedOrChecked(url, db);
                 }
             }
         });
