@@ -11,6 +11,8 @@ public class OfflineDatabaseHandler extends SQLiteOpenHelper {
 
     private static final String TAG = "OfflineDatabaseHandler";
 
+    public static final String DB_PREFIX = "com.mapbox.mapboxsdk.offline-";
+
     // All Static variables
     // Database Version
     public static final int DATABASE_VERSION = 2;
@@ -32,7 +34,7 @@ public class OfflineDatabaseHandler extends SQLiteOpenHelper {
      * @param context Context
      */
     public OfflineDatabaseHandler(Context context, String dbName) {
-        super(context, dbName, null, DATABASE_VERSION);
+        super(context, DB_PREFIX + dbName, null, DATABASE_VERSION);
     }
 
     @Override
