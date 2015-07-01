@@ -28,7 +28,7 @@ public class OfflineDatabaseManager {
 
     public OfflineDatabaseHandler getOfflineDatabaseHandlerForMapId(String mapId) {
         if (databaseHandlers.containsKey(mapId.toLowerCase())) {
-            return databaseHandlers.get(mapId);
+            return databaseHandlers.get(mapId.toLowerCase());
         }
 
         OfflineDatabaseHandler dbh = new OfflineDatabaseHandler(context, mapId.toLowerCase());
