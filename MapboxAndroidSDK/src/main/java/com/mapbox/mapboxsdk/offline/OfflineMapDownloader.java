@@ -540,6 +540,14 @@ public class OfflineMapDownloader implements MapboxConstants {
         return db;
     }
 
+    public OfflineMapURLGenerator generatorForMapRegion(CoordinateRegion mapRegion, int minimumZ, int maximumZ) {
+        double minLat = mapRegion.getCenter().getLatitude() - (mapRegion.getSpan().getLatitudeSpan() / 2.0);
+        double maxLat = minLat + mapRegion.getSpan().getLatitudeSpan();
+        double minLon = mapRegion.getCenter().getLongitude() - (mapRegion.getSpan().getLongitudeSpan() / 2.0);
+        double maxLon = minLon + mapRegion.getSpan().getLongitudeSpan();
+        return new OfflineMapURLGenerator(minLat, maxLat, minLon, maxLon, minimumZ, maximumZ);
+    }
+
     public void beginDownloadingMapID(String mapID, CoordinateRegion mapRegion, Integer minimumZ, Integer maximumZ) {
         beginDownloadingMapID(mapID, mapRegion, minimumZ, maximumZ, true, true, RasterImageQuality.MBXRasterImageQualityFull);
     }
@@ -619,14 +627,8 @@ public class OfflineMapDownloader implements MapboxConstants {
         if (includeMarkers) {
             urls.add(String.format(MAPBOX_LOCALE, MAPBOX_BASE_URL_V4 + "%s/%s?access_token=%s", mapID, dataName, MapboxUtils.getAccessToken()));
         }
-
-        // Loop through the zoom levels and lat/lon bounds to generate a list of urls which should be included in the offline map
-        //
-        double minLat = mapRegion.getCenter().getLatitude() - (mapRegion.getSpan().getLatitudeSpan() / 2.0);
-        double maxLat = minLat + mapRegion.getSpan().getLatitudeSpan();
-        double minLon = mapRegion.getCenter().getLongitude() - (mapRegion.getSpan().getLongitudeSpan() / 2.0);
-        double maxLon = minLon + mapRegion.getSpan().getLongitudeSpan();
-        final OfflineMapURLGenerator generator = new OfflineMapURLGenerator(minLat, maxLat, minLon, maxLon, minimumZ, maximumZ);
+        
+        final OfflineMapURLGenerator generator = generatorForMapRegion(mapRegion, minimumZ, maximumZ);
         Log.i(TAG, "Number of URLs so far: " + (urls.size() + generator.getURLCount()));
 
         // Determine if we need to add marker icon urls (i.e. parse markers.geojson/features.json), and if so, add them
